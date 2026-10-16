@@ -1,0 +1,9 @@
+{
+  "name": "FONDO · retos pa' la chupa",
+  "short_name": "FONDO",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#14110f",
+  "theme_color": "#14110f",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}
