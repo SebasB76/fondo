@@ -4,6 +4,8 @@ Shot dares for a night out. One phone opens a table, the rest scan the QR and pl
 
 Live at https://fondo-blanco.pages.dev
 
+![Home, lobby, a vote card, a verdict and the podium](docs/screens.jpg)
+
 ## How it runs
 
 - `src/worker.ts`: Cloudflare Worker that serves `public/` and the API. Each table is one Durable Object that keeps the game state and talks to the phones over WebSockets. Tables delete themselves after 48 h.

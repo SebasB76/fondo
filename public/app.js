@@ -2,22 +2,28 @@ import morphdom from '/vendor/morphdom.js';
 import qrcode from '/vendor/qrcode.js';
 
 const EMOJIS = ['🍺', '🍻', '🥃', '🍹', '🍾', '🧉', '🔥', '💀', '🐸', '🦖', '🐒', '👽', '🤠', '🥑', '🌶️', '🦈'];
-const INKS = ['#ffc21a', '#ff3d8b', '#16b871', '#ff6b1a', '#3d6bff', '#00b8b0', '#9a6bff', '#ff4d3d'];
 const LEVELS = [
-  { v: 1, name: 'Tranqui', emoji: '🥤', sub: 'Retos suaves, pa’ calentar' },
-  { v: 2, name: 'Picante', emoji: '🌶️', sub: 'Aquí ya se pone bueno' },
-  { v: 3, name: 'Sin frenos', emoji: '💀', sub: 'Fondo blanco, cero filtro' },
+  { v: 1, name: 'Tranqui', sub: 'Retos suaves, pa’ calentar' },
+  { v: 2, name: 'Picante', sub: 'Aquí ya se pone bueno' },
+  { v: 3, name: 'Sin frenos', sub: 'Fondo blanco, cero filtro' },
 ];
+// `turn` and `hue` give each kind its own take on the green blur.
 const KINDS = {
-  reto: { label: 'Reto', ink: '#ffc21a' },
-  votacion: { label: 'Votación', ink: '#ff3d8b' },
-  nunca: { label: 'Yo nunca', ink: '#16b871' },
-  todos: { label: 'Toman todos los que…', ink: '#ff6b1a' },
-  duelo: { label: 'Duelo', ink: '#ff4d3d' },
-  regla: { label: 'Regla nueva', ink: '#3d6bff' },
-  ruleta: { label: 'Ruleta', ink: '#00b8b0' },
-  elige: { label: 'Tú eliges', ink: '#9a6bff' },
+  reto: { label: 'Reto', turn: 0, hue: 0 },
+  votacion: { label: 'Votación', turn: 140, hue: -18 },
+  nunca: { label: 'Yo nunca', turn: 60, hue: 14 },
+  todos: { label: 'Toman todos', turn: 220, hue: -16 },
+  duelo: { label: 'Duelo', turn: 300, hue: 22 },
+  regla: { label: 'Regla nueva', turn: 30, hue: 38 },
+  ruleta: { label: 'Ruleta', turn: 180, hue: 24 },
+  elige: { label: 'Tú eliges', turn: 95, hue: -8 },
 };
+const EMBLEM = `<svg class="emblem" viewBox="-50 -50 100 100" fill="#fff" aria-hidden="true">
+  <path d="M-20-4h40l-6 48h-28z"/><path d="M-15 8h30M-14 18h28M-13 28h26" stroke="#2c6b22" stroke-width="2.2" opacity=".5"/>
+  <circle cx="21" cy="-10" r="13"/><path d="M21-10v-12M21-10l10 7M21-10l-10 7M21-10l11-6M21-10l-11-6" stroke="#2c6b22" stroke-width="1.8" opacity=".55"/>
+  <path d="M-6-5C-26-17-24-40-10-47-4-34-2-20-6-5Z"/><path d="M-9-7C-31-5-41-21-37-32-25-28-15-20-9-7Z"/>
+  <path d="M-7-8-12-38M-10-9-31-26" stroke="#2c6b22" stroke-width="1.5" opacity=".5"/><circle cx="2" cy="-24" r="3"/><circle cx="8" cy="-33" r="2"/>
+</svg>`;
 const SPIN_MS = 2600;
 const DUEL_TIMEOUT_MS = 5000;
 
@@ -55,8 +61,9 @@ const joinedKey = (code) => `fondo:joined:${code}`;
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const hash = (s) => [...s].reduce((h, c) => (h * 31 + c.charCodeAt(0)) | 0, 7);
-const inkOf = (id) => INKS[Math.abs(hash(id)) % INKS.length];
-const tiltOf = (id, max = 4) => ((Math.abs(hash(id + 'r')) % (max * 20)) / 10 - max).toFixed(1);
+const blurStyle = (turn, hue) => `--r:${turn}deg;--h:${hue}deg`;
+const playerBlur = (id) => blurStyle(Math.abs(hash(id)) % 360, (Math.abs(hash(`${id}h`)) % 70) - 35);
+const pad2 = (n) => String(n).padStart(2, '0');
 const drinks = (n) => (n === 1 ? '1 trago' : n >= 4 ? 'fondo blanco' : `${n} tragos`);
 const player = (id) => S.room?.players.find((p) => p.id === id);
 const nameOf = (id) => player(id)?.name ?? '¿?';
@@ -312,7 +319,7 @@ function view() {
   if (!S.code) return homeView();
   if (S.gone) return goneView();
   if (!S.ws) return joinView();
-  if (!S.room) return `<main class="screen center"><div class="loader">Sirviendo…</div></main>`;
+  if (!S.room) return `<main class="screen center"><p class="loader">Sirviendo…</p></main>`;
   const body = S.room.phase === 'lobby' ? lobbyView() : S.room.phase === 'over' ? podiumView() : gameView();
   return body + offlineBanner();
 }
@@ -321,35 +328,24 @@ function offlineBanner() {
   return S.conn === 'open' ? '' : `<div class="offline">Reconectando…</div>`;
 }
 
-function badge() {
-  return `
-  <svg class="badge" viewBox="0 0 120 120" aria-hidden="true">
-    <defs><path id="circ" d="M60 60 m-46 0 a46 46 0 1 1 92 0 a46 46 0 1 1 -92 0"/></defs>
-    <circle cx="60" cy="60" r="58" fill="var(--pink)"/>
-    <text><textPath href="#circ" textLength="286" lengthAdjust="spacing">FONDO BLANCO ✶ SALUD MI GENTE ✶</textPath></text>
-    <text class="badge-mid" x="60" y="70" text-anchor="middle">🍻</text>
-  </svg>`;
+function topBar(right = '') {
+  return `<header class="top"><button class="logo" data-act="home">Fondo</button>${right}</header>`;
 }
 
 function homeView() {
   return `
   <main class="screen home">
-    <div class="hero">
-      <p class="eyebrow">retos pa’ la chupa · sin instalar nada</p>
-      <h1 class="logo"><span>FON</span><span>DO</span></h1>
-      ${badge()}
-    </div>
-    <ul class="pitch">
-      <li><b>01</b> Uno arma la mesa y muestra el QR.</li>
-      <li><b>02</b> Los demás lo escanean con el celu.</li>
-      <li><b>03</b> Retos, votaciones y duelos. El que pierde, toma.</li>
-    </ul>
+    ${topBar(S.codeOpen ? '' : '<button class="menu" data-act="open-code">Tengo un código</button>')}
+    <h1 class="headline">Retos para la chupa que se juegan desde el celu, sin instalar nada</h1>
+    <div class="blur hero" style="${blurStyle(0, 0)}"><span>FONDO</span>${EMBLEM}<span>BLANCO</span></div>
+    ${S.codeOpen ? '' : `<p class="kicker">Cómo se juega</p>
+    <p class="lede">Uno arma la mesa y los demás escanean el QR. Cada carta es un reto, un voto o un duelo. Alguien siempre toma.</p>`}
     <div class="cta">
-      <button class="btn btn-yellow" data-act="create" ${S.busy ? 'disabled' : ''}>${S.busy ? 'Armando…' : 'Armar la chupa'}</button>
       ${S.codeOpen
-        ? `<label class="code-entry"><span>Código de la mesa</span>
-            <input id="code-input" inputmode="text" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="4" placeholder="ABCD" value="${esc(S.draftCode)}"></label>`
-        : `<button class="btn btn-ghost" data-act="open-code">Tengo un código</button>`}
+        ? `<label class="code-entry"><span class="kicker">Código de la mesa</span>
+            <input id="code-input" class="field" inputmode="text" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="4" placeholder="ABCD" value="${esc(S.draftCode)}"></label>`
+        : ''}
+      <button class="btn arrow" data-act="create" ${S.busy ? 'disabled' : ''}>${S.busy ? 'Armando la mesa…' : 'Armar la mesa'}</button>
       ${S.error ? `<p class="error">${esc(S.error)}</p>` : ''}
     </div>
     <p class="fineprint">Toma agüita entre ronda y ronda. Y si vas a manejar, tú eres el del jugo.</p>
@@ -358,40 +354,39 @@ function homeView() {
 
 function goneView() {
   return `
-  <main class="screen center">
-    <div class="ticket small">
-      <p class="stamp-label" style="--k:var(--red)">Mesa cerrada</p>
-      <h2 class="big">La mesa <span class="mono">${esc(S.code)}</span> no existe o ya se acabó.</h2>
-      <button class="btn btn-yellow" data-act="home">Armar otra</button>
-    </div>
+  <main class="screen gone">
+    ${topBar()}
+    <section class="gone-body">
+      <p class="kicker">Mesa cerrada</p>
+      <h1 class="headline">La mesa ${esc(S.code)} no existe o ya se acabó.</h1>
+      <button class="btn arrow" data-act="home">Armar otra</button>
+    </section>
   </main>`;
 }
 
 function joinView() {
   return `
   <main class="screen join">
-    <header class="top"><button class="logo-sm" data-act="home">FONDO</button><span class="chip-code">${esc(S.code)}</span></header>
+    ${topBar(`<span class="menu">Mesa ${esc(S.code)}</span>`)}
     <section class="join-body">
-      <p class="eyebrow">Te invitaron a la mesa ${esc(S.code)}</p>
+      <p class="kicker">Te invitaron a la mesa ${esc(S.code)}</p>
       <label class="name-field">
-        <span>¿Cómo te dicen?</span>
-        <input id="name-input" maxlength="16" autocomplete="nickname" enterkeyhint="go" placeholder="Tu apodo" value="${esc(S.draftName)}">
+        <span class="headline">¿Cómo te dicen?</span>
+        <input id="name-input" class="field name" maxlength="16" autocomplete="nickname" enterkeyhint="go" placeholder="Tu apodo" value="${esc(S.draftName)}">
       </label>
-      <p class="label">Elige tu cara</p>
+      <p class="kicker spaced">Elige tu cara</p>
       <div class="emoji-grid">
         ${EMOJIS.map((e) => `<button class="emoji ${e === S.me.emoji ? 'on' : ''}" data-act="emoji" data-v="${e}">${e}</button>`).join('')}
       </div>
     </section>
     <div class="dock">
-      <button class="btn btn-yellow" data-act="join" ${S.checking ? 'disabled' : ''}>Entrar a la mesa</button>
+      <button class="btn arrow" data-act="join" ${S.checking ? 'disabled' : ''}>Entrar a la mesa</button>
     </div>
   </main>`;
 }
 
-function sticker(p, { big = false, extra = '' } = {}) {
-  const off = !online().has(p.id);
-  return `<span class="sticker ${big ? 'big' : ''} ${off ? 'off' : ''}" style="--c:${inkOf(p.id)};--r:${tiltOf(p.id)}deg">
-    <i>${esc(p.emoji)}</i>${esc(p.name)}${p.id === S.me.id ? '<small>tú</small>' : ''}${extra}</span>`;
+function chip(p) {
+  return `<span class="chip ${online().has(p.id) ? '' : 'off'}">${esc(p.emoji)} ${esc(p.name)}${p.id === S.me.id ? ' <small>tú</small>' : ''}</span>`;
 }
 
 function qrSvg(text) {
@@ -408,45 +403,45 @@ function lobbyView() {
   const r = S.room;
   const host = isHost();
   const url = `${location.origin}/r/${r.code}`;
-  const count = r.players.filter((p) => online().has(p.id)).length;
+  const live = online();
+  const count = r.players.filter((p) => live.has(p.id)).length;
+  const level = LEVELS.find((l) => l.v === r.level) ?? LEVELS[0];
+  const status = (p) => [p.id === r.host && 'arma la mesa', p.id === S.me.id && 'tú', !live.has(p.id) && 'desconectado']
+    .filter(Boolean).join(' · ');
   return `
   <main class="screen lobby">
-    <header class="top"><button class="logo-sm" data-act="home">FONDO</button><span class="chip-code">${count} en la mesa</span></header>
+    ${topBar('<button class="menu" data-act="home">Salir</button>')}
     <div class="lobby-grid">
       <section class="entry">
-        <div class="entry-top tk-top"><div class="entry-qr">${qrSvg(url)}</div></div>
-        <div class="entry-info tk-bottom">
-          <p class="stamp-label" style="--k:var(--pink)">Pase de entrada</p>
-          <p class="code-big">${esc(r.code)}</p>
-          <p class="hint">Escanea el QR o entra a <b>${esc(location.host)}</b> con este código.</p>
-          <button class="btn btn-ink" data-act="share">Mandar al grupo</button>
-        </div>
+        <p class="kicker">Mesa abierta</p>
+        <p class="code-big">${esc(r.code)}</p>
+        <div class="qr-card">${qrSvg(url)}</div>
+        <p class="note">Escaneen el QR o entren a <b>${esc(location.host)}</b> con el código.</p>
+        <button class="btn ghost arrow" data-act="share">Mandar al grupo</button>
       </section>
       <section class="side">
-        <h3 class="section-title">En la mesa</h3>
-        <div class="roster">${r.players.map((p) => sticker(p, { big: true })).join('')}</div>
-        <h3 class="section-title">Nivel</h3>
+        <p class="kicker">En la mesa · ${count}</p>
+        <ol class="roster">
+          ${r.players.map((p, i) => `
+            <li class="sticker ${live.has(p.id) ? '' : 'off'}"><span class="no">${pad2(i + 1)}</span><b>${esc(p.emoji)} ${esc(p.name)}</b><small>${status(p)}</small></li>`).join('')}
+        </ol>
+        <p class="kicker spaced">Nivel</p>
         <div class="levels">
-          ${LEVELS.map((l) => `
-            <button class="level ${r.level === l.v ? 'on' : ''}" data-act="level" data-v="${l.v}" ${host ? '' : 'disabled'}>
-              <span class="level-emoji">${l.emoji}</span><b>${l.name}</b><small>${l.sub}</small>
-            </button>`).join('')}
+          ${LEVELS.map((l) => `<button class="level ${r.level === l.v ? 'on' : ''}" data-act="level" data-v="${l.v}" ${host ? '' : 'disabled'}>${l.name}</button>`).join('')}
         </div>
+        <p class="note">${level.sub}</p>
       </section>
     </div>
     <div class="dock">
       ${host
-        ? `<button class="btn btn-yellow" data-act="start" ${count < 2 ? 'disabled' : ''}>${count < 2 ? 'Esperando panas…' : 'Arrancar la chupa'}</button>`
-        : `<p class="waiting">Esperando a que <b>${esc(nameOf(r.host))}</b> arranque<span class="dots"></span></p>`}
+        ? `<button class="btn arrow" data-act="start" ${count < 2 ? 'disabled' : ''}>${count < 2 ? 'Esperando panas…' : 'Arrancar la chupa'}</button>`
+        : waiting(`Esperando a que <b>${esc(nameOf(r.host))}</b> arranque`)}
     </div>
   </main>`;
 }
 
 function fill(text, card) {
-  const who = (id) => {
-    const p = player(id);
-    return p ? `<mark style="--c:${inkOf(p.id)}">${esc(p.name)}</mark>` : '';
-  };
+  const who = (id) => (player(id) ? `<mark>${esc(nameOf(id))}</mark>` : '');
   return esc(text)
     .replaceAll('{p}', who(card.target))
     .replaceAll('{q}', who(card.second))
@@ -480,52 +475,47 @@ function spinning(card) {
 
 function verdict(card) {
   if (!card.resolved || spinning(card) || card.kind === 'regla') return '';
-  let text;
-  if (card.kind === 'reto' && !card.passed && card.losers.length === 0) text = 'Cumplido';
-  else if (card.losers.length === 0) text = 'Nadie toma';
-  else if (card.losers.length > 2) text = `Toman ${card.losers.length}`;
-  else text = `Toma${card.losers.length > 1 ? 'n' : ''}<br>${card.losers.map((id) => esc(nameOf(id))).join(' y ')}`;
-  return `<div class="verdict ${card.losers.length ? '' : 'ok'}">${text}</div>`;
+  const n = card.losers.length;
+  let pre, main;
+  if (card.kind === 'reto' && !card.passed && n === 0) [pre, main] = ['Reto', 'Cumplido'];
+  else if (n === 0) [pre, main] = ['Esta vez', 'Nadie toma'];
+  else if (n > 2) [pre, main] = ['Toman', n === S.room.players.length ? 'Todos' : `${n} de la mesa`];
+  else [pre, main] = [plural(n, 'Toma', 'Toman'), card.losers.map((id) => esc(nameOf(id))).join(' y ')];
+  return `<div class="verdict ${n ? '' : 'ok'}"><em>${pre}</em><b>${main}</b></div>`;
 }
 
 function ruletaReel(card) {
   const names = S.room.players.map((p) => p.name);
-  const victim = nameOf(card.losers[0]);
   const reel = [];
-  for (let i = 0; i < 6; i++) for (const n of names) reel.push(n);
-  reel.push(victim);
-  const done = !spinning(card);
-  return `<div class="reel" id="reel-${card.seq}">
-    <div class="reel-strip ${done ? 'done' : ''}" style="--steps:${reel.length - 1}">
-      ${reel.map((n) => `<div>${esc(n)}</div>`).join('')}
-    </div></div>`;
+  for (let i = 0; i < 6; i++) reel.push(...names);
+  reel.push(nameOf(card.losers[0]));
+  return `<div class="reel" id="reel-${card.seq}"><div class="reel-strip" style="--steps:${reel.length - 1}">
+    ${reel.map((n) => `<div>${esc(n)}</div>`).join('')}</div></div>`;
 }
 
 function cardView(card) {
   const k = KINDS[card.kind];
+  const spin = spinning(card);
+  const stamp = verdict(card);
   return `
-  <article class="card deal" id="card-${card.seq}" data-kind="${card.kind}" style="--k:${k.ink};--tilt:${tiltOf(String(card.seq), 2.2)}deg">
-    <div class="card-main tk-top">
-      <div class="card-head">
-        <span class="stamp-label" style="--k:${k.ink}">${k.label}</span>
-        <span class="card-no">Nº ${String(card.seq).padStart(2, '0')}</span>
-      </div>
-      <h2 class="card-text">${cardHeadline(card)}</h2>
-      ${card.kind === 'ruleta' ? ruletaReel(card) : ''}
-      ${verdict(card)}
+  <article class="card deal" id="card-${card.seq}" data-kind="${card.kind}">
+    <div class="blur tile ${spin || stamp ? 'busy' : ''}" style="${blurStyle(k.turn, k.hue)}">
+      <span class="tile-label">${k.label}</span>
+      ${spin ? ruletaReel(card) : ''}
+      ${stamp}
     </div>
-    <div class="card-stub tk-bottom"><span>${cardFoot(card)}</span><span class="card-brand">FONDO</span></div>
+    <div class="card-meta"><span class="card-no">Nº ${pad2(card.seq)}</span><span>${cardFoot(card)}</span></div>
+    <h2 class="card-text">${cardHeadline(card)}</h2>
   </article>`;
 }
 
-function rulesTicker() {
+function rulesView() {
   const rules = S.room.rules;
   if (!rules.length) return '';
-  const items = rules.map((r) => {
+  return `<ul class="rules" aria-label="Reglas activas">${rules.map((r) => {
     const left = r.until - S.room.seq;
-    return `<span>⚠ ${fill(r.text, { target: r.target, second: r.second, n: 1 })} <em>(${left} ${plural(left, 'carta', 'cartas')})</em></span>`;
-  }).join('');
-  return `<div class="ticker" aria-label="Reglas activas"><div class="ticker-track">${items}${items}</div></div>`;
+    return `<li><span><em>Regla activa:</em> ${fill(r.text, { target: r.target, second: r.second, n: 1 })}</span><small>${plural(left, 'queda 1', `quedan ${left}`)}</small></li>`;
+  }).join('')}</ul>`;
 }
 
 function gameView() {
@@ -534,12 +524,9 @@ function gameView() {
   const me = player(S.me.id);
   return `
   <main class="screen game ${S.board ? 'board-open' : ''}">
-    <header class="top">
-      <button class="logo-sm" data-act="home">FONDO</button>
-      <span class="chip-code">${esc(r.code)}</span>
-      <button class="board-btn" data-act="board" aria-label="Ver tablero">${glass(me?.drinks ?? 0, maxDrinks(), 'me', 'mini')}<b>${me?.drinks ?? 0}</b></button>
-    </header>
-    ${rulesTicker()}
+    ${topBar(`<span class="menu">Mesa ${esc(r.code)}</span>
+      <button class="board-btn" data-act="board" aria-label="Ver tablero">${glass(me?.drinks ?? 0, maxDrinks(), 'me', 'mini')}<b>${me?.drinks ?? 0}</b></button>`)}
+    ${rulesView()}
     <div class="game-grid">
       <section class="stage">
         ${card ? cardView(card) : ''}
@@ -557,7 +544,7 @@ function waiting(text) {
 }
 
 function nextBtn() {
-  return `<button class="btn btn-yellow" data-act="next">Siguiente carta →</button>`;
+  return `<button class="btn arrow" data-act="next">Siguiente carta</button>`;
 }
 
 function hostTools(card, label = 'Saltar carta') {
@@ -571,7 +558,11 @@ function hostTools(card, label = 'Saltar carta') {
 
 function losersLine(card) {
   if (!card.losers.length) return '';
-  return `<div class="losers"><span>${plural(card.losers.length, 'Toma', 'Toman')} ${drinks(card.n)}:</span>${card.losers.map((id) => player(id) ? sticker(player(id)) : '').join('')}</div>`;
+  return `<div class="losers"><em>${plural(card.losers.length, 'Toma', 'Toman')} ${drinks(card.n)}</em>${card.losers.map((id) => (player(id) ? chip(player(id)) : '')).join('')}</div>`;
+}
+
+function voteBtn(p, on = false) {
+  return `<button class="vote ${on ? 'on' : ''}" data-act="vote" data-v="${p.id}"><i>${esc(p.emoji)}</i>${esc(p.name)}</button>`;
 }
 
 function actionsView(card) {
@@ -584,8 +575,8 @@ function actionsView(card) {
     case 'reto':
       if (card.target === me) {
         return `<div class="duo">
-          <button class="btn btn-green" data-act="reto-done">Lo hice</button>
-          <button class="btn btn-ghost" data-act="reto-pass">Paso, tomo ${drinks(card.n)}</button>
+          <button class="btn accent" data-act="reto-done">Lo hice</button>
+          <button class="btn ghost" data-act="reto-pass">Paso, tomo ${drinks(card.n)}</button>
         </div>`;
       }
       return waiting(`Le toca a <b>${esc(nameOf(card.target))}</b>`) + hostTools(card);
@@ -593,10 +584,7 @@ function actionsView(card) {
     case 'votacion': {
       const mine = card.votes[me];
       const missing = live.filter((p) => !(p.id in card.votes)).length;
-      return `<div class="vote-grid">
-        ${S.room.players.map((p) => `<button class="vote ${mine === p.id ? 'on' : ''}" data-act="vote" data-v="${p.id}">
-          <i>${esc(p.emoji)}</i>${esc(p.name)}</button>`).join('')}
-      </div>
+      return `<div class="vote-grid">${S.room.players.map((p) => voteBtn(p, mine === p.id)).join('')}</div>
       ${waiting(mine ? `Votaste. ${plural(missing, 'Falta', 'Faltan')} ${missing}` : 'Vota en secreto')}${hostTools(card)}`;
     }
 
@@ -605,30 +593,28 @@ function actionsView(card) {
       const mine = card.votes[me];
       const missing = live.filter((p) => !(p.id in card.votes)).length;
       return `<div class="duo">
-        <button class="btn btn-green ${mine === true ? 'on' : ''}" data-act="yes">${card.kind === 'nunca' ? 'Yo sí, tomo' : 'Me toca, tomo'}</button>
-        <button class="btn btn-ghost ${mine === false ? 'on' : ''}" data-act="no">${card.kind === 'nunca' ? 'Yo nunca' : 'Me salvo'}</button>
+        <button class="btn ${mine === true ? 'on' : ''}" data-act="yes">${card.kind === 'nunca' ? 'Yo sí, tomo' : 'Me toca, tomo'}</button>
+        <button class="btn ghost ${mine === false ? 'on' : ''}" data-act="no">${card.kind === 'nunca' ? 'Yo nunca' : 'Me salvo'}</button>
       </div>
       ${mine === undefined ? '' : waiting(`${plural(missing, 'Falta', 'Faltan')} ${missing} por responder`)}${hostTools(card)}`;
     }
 
     case 'elige':
       if (card.target === me) {
-        return `<div class="vote-grid">
-          ${S.room.players.filter((p) => p.id !== me).map((p) => `<button class="vote" data-act="vote" data-v="${p.id}"><i>${esc(p.emoji)}</i>${esc(p.name)}</button>`).join('')}
-        </div>`;
+        return `<div class="vote-grid">${S.room.players.filter((p) => p.id !== me).map((p) => voteBtn(p)).join('')}</div>`;
       }
       return waiting(`<b>${esc(nameOf(card.target))}</b> está eligiendo`) + hostTools(card);
 
     case 'duelo': {
       const d = card.duel;
       const fighter = d.a === me || d.b === me;
-      const vs = `<div class="vs">${sticker(player(d.a), { big: true })}<b>VS</b>${sticker(player(d.b), { big: true })}</div>`;
+      const vs = `<div class="vs"><b>${esc(nameOf(d.a))}</b><em>vs</em><b>${esc(nameOf(d.b))}</b></div>`;
       if (fighter && !d.ready.includes(me)) {
-        return `${vs}<p class="hint">Cuando la pantalla se ponga <b class="green">verde</b>, toca lo más rápido que puedas. Si tocas antes, pierdes.</p>
-          <button class="btn btn-red" data-act="ready">Estoy listo</button>`;
+        return `${vs}<p class="hint">Cuando la pantalla se ponga <b>verde</b>, toca lo más rápido que puedas. Si tocas antes, pierdes.</p>
+          <button class="btn accent arrow" data-act="ready">Estoy listo</button>`;
       }
       if (d.delayMs == null) return vs + waiting('Esperando a que los dos estén listos') + hostTools(card);
-      return vs + waiting('¡Reflejos en curso!') + hostTools(card);
+      return vs + waiting('Reflejos en curso') + hostTools(card);
     }
   }
   return nextBtn();
@@ -641,7 +627,7 @@ function resultDetail(card) {
     const max = Math.max(1, ...Object.values(tally));
     const rows = Object.entries(tally).sort((a, b) => b[1] - a[1]);
     return `<div class="tally">${rows.map(([id, n]) => `
-      <div class="bar" style="--w:${(n / max) * 100}%;--c:${inkOf(id)}"><span>${esc(player(id)?.emoji ?? '')} ${esc(nameOf(id))}</span><b>${n}</b></div>`).join('')}</div>`;
+      <div class="tally-row" style="--w:${(n / max) * 100}%"><span>${esc(player(id)?.emoji ?? '')} ${esc(nameOf(id))}</span><i></i><b>${n}</b></div>`).join('')}</div>`;
   }
   if (card.kind === 'duelo') {
     const d = card.duel;
@@ -664,11 +650,11 @@ function duelPad(card) {
   const duel = S.duel;
   if (!card?.duel || !duel || duel.seq !== card.seq || card.resolved) return '';
   if (duel.phase === 'done') {
-    const label = duel.ms < 0 ? '¡Te adelantaste!' : `${Math.round(duel.ms)} ms`;
+    const label = duel.ms < 0 ? 'Te adelantaste' : `${Math.round(duel.ms)} ms`;
     return `<div class="pad done"><p>${label}</p><small>Esperando al rival…</small></div>`;
   }
-  const go = duel.phase === 'go';
-  return `<div class="pad ${go ? 'go' : 'wait'}" data-pad><p>${go ? '¡YA!' : 'Espera…'}</p><small>${go ? 'Toca, toca, toca' : 'No toques todavía'}</small></div>`;
+  if (duel.phase === 'go') return `<div class="pad go blur" style="${blurStyle(40, 10)}" data-pad><p>Ya</p><small>Toca, toca, toca</small></div>`;
+  return `<div class="pad wait" data-pad><p>Espera…</p><small>No toques todavía</small></div>`;
 }
 
 function maxDrinks() {
@@ -682,11 +668,11 @@ function glass(n, max, key, cls = '') {
     <clipPath id="${id}"><path d="M3 2 L7 49 H33 L37 2 Z"/></clipPath>
     <g clip-path="url(#${id})">
       <g class="liquid" style="transform:translateY(${(50 - h).toFixed(1)}px)">
-        <rect x="0" y="0" width="40" height="52" fill="var(--amber)"/>
+        <rect x="0" y="0" width="40" height="52" fill="var(--green)"/>
         <rect x="0" y="-1" width="40" height="5" fill="var(--foam)"/>
       </g>
     </g>
-    <path d="M3 2 L7 49 H33 L37 2" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linejoin="round" stroke-linecap="round"/>
+    <path d="M3 2 L7 49 H33 L37 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
   </svg>`;
 }
 
@@ -696,7 +682,7 @@ function boardView() {
   const rows = [...r.players].sort((a, b) => b.drinks - a.drinks);
   return `
   <aside class="board">
-    <div class="board-head"><h3 class="section-title">Tablero</h3><button class="link only-mobile" data-act="board">Cerrar</button></div>
+    <div class="board-head"><h3 class="board-title">Tablero</h3><button class="link only-mobile" data-act="board">Cerrar</button></div>
     <ol class="board-list">
       ${rows.map((p) => `
         <li class="${online().has(p.id) ? '' : 'off'}">
@@ -708,31 +694,29 @@ function boardView() {
           </div>
         </li>`).join('')}
     </ol>
-    <p class="hint">¿Alguien rompió una regla? Súmale un trago con +.</p>
-    ${isHost() ? `<button class="btn btn-ghost small" data-act="end">Terminar la chupa</button>` : ''}
+    <p class="note">¿Alguien rompió una regla? Súmale un trago con +.</p>
+    ${isHost() ? `<button class="btn ghost" data-act="end">Terminar la chupa</button>` : ''}
   </aside>`;
 }
 
 function podiumView() {
   const r = S.room;
   const rows = [...r.players].sort((a, b) => b.drinks - a.drinks);
-  const max = Math.max(1, rows[0]?.drinks ?? 1);
   const title = (i) => (i === 0 ? 'Leyenda de la chupa' : i === rows.length - 1 && rows.length > 2 ? 'Modo agüita' : i === 1 ? 'Casi casi' : '');
   return `
   <main class="screen podium">
-    <header class="top"><button class="logo-sm" data-act="home">FONDO</button><span class="chip-code">${esc(r.code)}</span></header>
-    <h1 class="podium-title">Se acabó<br>la chupa</h1>
+    ${topBar(`<span class="menu">Mesa ${esc(r.code)}</span>`)}
+    <p class="kicker">Fin de la chupa</p>
+    <h1 class="headline">Ranking de la noche</h1>
     <ol class="ranking">
       ${rows.map((p, i) => `
-        <li style="--c:${inkOf(p.id)};--d:${i * 90}ms">
-          <span class="rank">${i + 1}</span>
-          ${glass(p.drinks, max, `p-${p.id}`)}
-          <div class="who"><b>${esc(p.emoji)} ${esc(p.name)}</b>${title(i) ? `<small>${title(i)}</small>` : ''}</div>
-          <span class="count">${p.drinks}<small>${plural(p.drinks, 'trago', 'tragos')}</small></span>
+        <li style="--d:${i * 90}ms">
+          <div class="blur thumb" style="${playerBlur(p.id)}">${i + 1}</div>
+          <div class="who"><em>${esc(p.emoji)} ${esc(p.name)}</em><small>${p.drinks} ${plural(p.drinks, 'trago', 'tragos')}${title(i) ? ` — ${title(i)}` : ''}</small></div>
         </li>`).join('')}
     </ol>
     <div class="dock">
-      ${isHost() ? `<button class="btn btn-yellow" data-act="restart">Otra ronda</button>` : waiting('El host decide si hay otra')}
+      ${isHost() ? `<button class="btn arrow" data-act="restart">Otra ronda</button>` : waiting('El host decide si hay otra')}
     </div>
   </main>`;
 }
